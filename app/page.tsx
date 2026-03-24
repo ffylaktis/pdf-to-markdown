@@ -1,100 +1,136 @@
-import Image from "next/image";
+"use client";
+
+import { useState, useCallback } from "react";
+import FileUploader from "@/components/FileUploader";
+import MarkdownPreview from "@/components/MarkdownPreview";
+import MarkdownEditor from "@/components/MarkdownEditor";
+import ActionBar from "@/components/ActionBar";
+import { parsePDF } from "@/lib/pdf-parser";
+import { convertToMarkdown } from "@/lib/markdown-converter";
+import { formatFileSize } from "@/lib/utils";
 
 export default function Home() {
-  return (
-    <div className="grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20 font-[family-name:var(--font-geist-sans)]">
-      <main className="flex flex-col gap-8 row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="https://nextjs.org/icons/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="list-inside list-decimal text-sm text-center sm:text-left font-[family-name:var(--font-geist-mono)]">
-          <li className="mb-2">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] px-1 py-0.5 rounded font-semibold">
-              app/page.tsx
-            </code>
-            .
-          </li>
-          <li>Save and see your changes instantly.</li>
-        </ol>
+  const [markdown, setMarkdown] = useState("");
+  const [filename, setFilename] = useState("");
+  const [isConverting, setIsConverting] = useState(false);
+  const [progress, setProgress] = useState({ page: 0, total: 0 });
+  const [error, setError] = useState("");
+  const [activeTab, setActiveTab] = useState<"preview" | "raw">("preview");
 
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="https://nextjs.org/icons/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:min-w-44"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
+  const handleFileSelected = useCallback(async (file: File) => {
+    setError("");
+    setIsConverting(true);
+    setFilename(file.name);
+    setMarkdown("");
+    setProgress({ page: 0, total: 0 });
+
+    try {
+      const buffer = await file.arrayBuffer();
+      const parsed = await parsePDF(buffer, (page, total) => {
+        setProgress({ page, total });
+      });
+
+      if (parsed.pages.every((p) => p.items.length === 0)) {
+        setError(
+          "No text found in this PDF. It may be a scanned document (image-based). Text extraction requires PDFs with embedded text."
+        );
+        setIsConverting(false);
+        return;
+      }
+
+      const md = convertToMarkdown(parsed);
+      setMarkdown(md);
+    } catch (err) {
+      setError(
+        `Failed to convert PDF: ${err instanceof Error ? err.message : "Unknown error"}`
+      );
+    } finally {
+      setIsConverting(false);
+    }
+  }, []);
+
+  return (
+    <div className="min-h-screen flex flex-col">
+      <header className="border-b border-gray-200 dark:border-gray-800 px-6 py-4">
+        <div className="max-w-5xl mx-auto flex items-center justify-between">
+          <h1 className="text-xl font-semibold tracking-tight">
+            PDF to Markdown
+          </h1>
+          <span className="text-sm text-gray-500 dark:text-gray-400">
+            Client-side conversion
+          </span>
         </div>
+      </header>
+
+      <main className="flex-1 max-w-5xl mx-auto w-full px-6 py-8">
+        {!markdown && !isConverting && (
+          <div className="max-w-2xl mx-auto">
+            <FileUploader
+              onFileSelected={handleFileSelected}
+              isConverting={isConverting}
+            />
+          </div>
+        )}
+
+        {isConverting && (
+          <div className="max-w-md mx-auto text-center py-16">
+            <div className="animate-spin w-8 h-8 border-2 border-blue-600 border-t-transparent rounded-full mx-auto mb-4" />
+            <p className="text-gray-600 dark:text-gray-400">
+              Converting {filename}...
+            </p>
+            {progress.total > 0 && (
+              <p className="text-sm text-gray-500 mt-1">
+                Page {progress.page} of {progress.total}
+              </p>
+            )}
+          </div>
+        )}
+
+        {error && (
+          <div className="max-w-2xl mx-auto mt-6 p-4 bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 rounded-lg text-red-700 dark:text-red-400 text-sm">
+            {error}
+          </div>
+        )}
+
+        {markdown && !isConverting && (
+          <div className="flex flex-col gap-4">
+            <div className="flex items-center justify-between">
+              <button
+                onClick={() => {
+                  setMarkdown("");
+                  setFilename("");
+                  setError("");
+                }}
+                className="text-sm text-blue-600 dark:text-blue-400 hover:underline"
+              >
+                Upload new file
+              </button>
+              <span className="text-sm text-gray-500 dark:text-gray-400">
+                {filename}
+              </span>
+            </div>
+
+            <div className="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden flex flex-col min-h-[500px]">
+              <ActionBar
+                markdown={markdown}
+                filename={filename}
+                activeTab={activeTab}
+                onTabChange={setActiveTab}
+              />
+              <div className="flex-1 overflow-auto">
+                {activeTab === "preview" ? (
+                  <MarkdownPreview markdown={markdown} />
+                ) : (
+                  <MarkdownEditor markdown={markdown} onChange={setMarkdown} />
+                )}
+              </div>
+            </div>
+          </div>
+        )}
       </main>
-      <footer className="row-start-3 flex gap-6 flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="https://nextjs.org/icons/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
-          />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="https://nextjs.org/icons/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="https://nextjs.org/icons/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
+
+      <footer className="border-t border-gray-200 dark:border-gray-800 px-6 py-4 text-center text-sm text-gray-500 dark:text-gray-400">
+        Your PDF never leaves your browser. All processing happens locally.
       </footer>
     </div>
   );
